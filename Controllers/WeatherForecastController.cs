@@ -1,5 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
+using SignalR_Example.Model;
 using SignalR_Example.WebSockets;
+using StackExchange.Redis;
+using System.Text.Json;
 
 namespace SignalR_Example.Controllers
 {
@@ -14,17 +17,61 @@ namespace SignalR_Example.Controllers
 
         private readonly ILogger<WeatherForecastController> _logger;
         private readonly WebSocket _connection;
+        private readonly IDatabase _cache;
 
-        public WeatherForecastController(ILogger<WeatherForecastController> logger, WebSocket connection)
+        public WeatherForecastController(ILogger<WeatherForecastController> logger, WebSocket connection, IDatabase cache)
         {
             _logger = logger;
             _connection = connection;
+            _cache = cache;
+        }
+
+
+        [HttpGet("GetKeyValue")]
+        public async Task<IActionResult> GetKeyValue(string key)
+        {
+            var options = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            };
+
+            var value = await _cache.SetMembersAsync(key);
+
+            var content = value.FirstOrDefault();
+
+            if (content.IsNullOrEmpty)
+                return Ok();
+
+            return Ok(JsonSerializer.Deserialize<Person>(content, options));
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> SetKeyValue(Person person)
+        {
+            var options = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+            };
+
+            var value = await _cache.SetAddAsync(person.Name, JsonSerializer.Serialize(person, options));
+            _cache.KeyExpire(person.Name, TimeSpan.FromSeconds(40));
+
+
+            return Ok();
+        }
+
+        [HttpPost("Publish")]
+        public async Task<IActionResult> Publish(Person person)
+        {
+            await _connection.PublishMessageRedis(person);
+
+            return Ok();
         }
 
         [HttpGet(Name = "GetWeatherForecast")]
         public async Task<IEnumerable<WeatherForecast>> Get()
         {
-            await _connection.SendMessage("Lucas","Test123");
+            await _connection.SendMessage("Lucas", "Test123");
 
             return Enumerable.Range(1, 5).Select(index => new WeatherForecast
             {
