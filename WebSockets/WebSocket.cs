@@ -1,19 +1,24 @@
 ﻿using Microsoft.AspNetCore.SignalR;
 using SignalR_Example.Model;
 using StackExchange.Redis;
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace SignalR_Example.WebSockets
 {
     public class WebSocket : Hub
     {
-        //private static readonly Dictionary<string, string> _connectedClients = new Dictionary<string, string>();
         private static ConnectionMultiplexer _redisConnection;
         private static ISubscriber _redisSubscriber;
         private static string _redisChannelName = "channel";
+        private readonly IServiceProvider _serviceProvider;
+        private ILogger _logger;
 
-        public WebSocket()
+
+        public WebSocket(IServiceProvider serviceProvider)
         {
+            _serviceProvider = serviceProvider;
+
             if (_redisConnection == null)
             {
                 string redisConnectionString = "localhost";
@@ -28,23 +33,38 @@ namespace SignalR_Example.WebSockets
 
         public override async Task OnConnectedAsync()
         {
-            var id = Context.ConnectionId;
+            try
+            {
+                var id = Context.ConnectionId;
 
-            await Clients.Client(Context.ConnectionId).SendAsync("Connected", id);
+                await Clients.Client(Context.ConnectionId).SendAsync("Connected", id);
 
-            await base.OnConnectedAsync();
+                await base.OnConnectedAsync();
+            }
+            catch (Exception ex)
+            {
+                using (var scope = _serviceProvider.CreateScope())
+                {
+                    _logger= scope.ServiceProvider.GetRequiredService<ILogger<WebSocket>>();
+                    _logger.LogError(ex, ex.Message);
+                }
+            }
         }
 
-        //public override async Task OnDisconnectedAsync(Exception)
-        //{
-        //    var userId = _connectedClients[Context.ConnectionId];
-        //    _connectedClients.Remove(Context.ConnectionId);
+        public override async Task OnDisconnectedAsync(Exception exception)
+        {
+            if (exception == null)
+            {
+                await base.OnDisconnectedAsync(exception);
+            }
+            else
+            {
+                Console.WriteLine($"{exception}, {exception.Message}");
+                Debug.WriteLine($"{exception}, {exception.Message}");
 
-        //    await Clients.AllExcept(new[] { Context.ConnectionId })
-        //        .SendAsync("UserDisconnected", userId);
-
-        //    await base.OnDisconnectedAsync(exception);
-        //}
+                await base.OnDisconnectedAsync(exception);
+            }
+        }
 
         public async Task PublishMessageRedis(Person person)
         {
@@ -58,7 +78,18 @@ namespace SignalR_Example.WebSockets
 
         public async Task SendMessageToClient(string userId, string uniqueMessage)
         {
-            await Clients.Client(userId).SendAsync("ReceiveMessage", Context.ConnectionId, uniqueMessage);
+            try
+            {
+                await Clients.Client(userId).SendAsync("ReceiveMessage", Context.ConnectionId, uniqueMessage);
+            }
+            catch (Exception ex)
+            {
+                using (var scope = _serviceProvider.CreateScope())
+                {
+                    _logger= scope.ServiceProvider.GetRequiredService<ILogger<WebSocket>>();
+                    _logger.LogError(ex, ex.Message);
+                }
+            }
         }
 
         public async Task SendMessage(string Username, string Message)
@@ -68,15 +99,26 @@ namespace SignalR_Example.WebSockets
 
         public async Task RedisReceivedMessage(RedisValue message)
         {
-            var options = new JsonSerializerOptions
+            try
             {
-                PropertyNameCaseInsensitive = true
-            };
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                };
 
-            if (!message.IsNullOrEmpty)
+                if (!message.IsNullOrEmpty)
+                {
+                    var content = JsonSerializer.Deserialize<Person>(message, options);
+                    await Clients.All.SendAsync("ReceiveObject", content).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
             {
-                var content = JsonSerializer.Deserialize<Person>(message, options);
-                await Clients.All.SendAsync("ReceiveObject", content).ConfigureAwait(false);
+                using (var scope = _serviceProvider.CreateScope())
+                {
+                    _logger= scope.ServiceProvider.GetRequiredService<ILogger<WebSocket>>();
+                    _logger.LogError(ex, ex.Message);
+                }
             }
         }
     }

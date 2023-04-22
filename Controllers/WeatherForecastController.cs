@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using SignalR_Example.Model;
 using SignalR_Example.WebSockets;
 using StackExchange.Redis;
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace SignalR_Example.Controllers
@@ -63,6 +64,9 @@ namespace SignalR_Example.Controllers
         [HttpPost("Publish")]
         public async Task<IActionResult> Publish(Person person)
         {
+            Console.WriteLine($"Date: {DateTime.Now.ToLocalTime().ToString("dd/MM/yyyy hh:mm:ss.fff")}");
+            Debug.WriteLine($"Date: {DateTime.Now.ToLocalTime().ToString("dd/MM/yyyy hh:mm:ss.fff")} \n");
+
             await _connection.PublishMessageRedis(person);
 
             return Ok();
